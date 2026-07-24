@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Velvet Vogue Fashion Store Core
  * Plugin URI: https://obydullah.com/project/velvet-vogue-fashion-store-core
- * Description: Core functionality for Velvet Vogue Fashion Store theme with hero slider, testimonials, and footer management.
+ * Description: Manage hero sliders, testimonials, and footer settings from the WordPress admin. Works with any theme.
  * Version:     1.0.0
  * Author:      Shaik Obydullah
  * Author URI:  https://obydullah.com
@@ -10,15 +10,18 @@
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain: velvet-vogue-fashion-store-core
  * Domain Path: /languages
+ * Requires at least: 5.0
+ * Requires PHP: 7.4
  *
  * ====================================================================================
  *                         INDEX
  * ====================================================================================
- * 1. Security & Constants
- * 2. Admin Dashboard
- * 3. Hero Slider CPT + Meta Boxes
- * 4. Testimonials CPT + Meta Boxes
- * 5. Footer Settings (Single Instance) + Meta Boxes
+ * 1. Security, Constants & Requirements
+ * 2. Activation Hook
+ * 3. Admin Dashboard
+ * 4. Hero Slider CPT + Meta Boxes
+ * 5. Testimonials CPT + Meta Boxes
+ * 6. Footer Settings (Single Instance) + Meta Boxes
  * =====================================================================================
  */
 
@@ -26,18 +29,89 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
+if ( version_compare( PHP_VERSION, '7.4', '<' ) ) {
+    add_action( 'admin_notices', function () {
+        echo '<div class="notice notice-error"><p>';
+        echo esc_html__( 'Velvet Vogue Fashion Store Core requires PHP 7.4 or higher. Your server is running PHP ', 'velvet-vogue-fashion-store-core' );
+        echo esc_html( PHP_VERSION );
+        echo '.</p></div>';
+    } );
+    return;
+}
+
 define( 'VVFS_CORE_VERSION', '1.0.0' );
 define( 'VVFS_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'VVFS_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 
 /* ======================================================
-   2. Admin Dashboard
+   2. Activation Hook
+====================================================== */
+
+function vvfs_activate() {
+    $hero_post = get_posts( array(
+        'post_type'      => 'vvfs_hero_slide',
+        'posts_per_page' => 1,
+        'fields'         => 'ids',
+    ) );
+    if ( empty( $hero_post ) ) {
+        wp_insert_post( array(
+            'post_title'   => __( 'Sample Hero Slide', 'velvet-vogue-fashion-store-core' ),
+            'post_type'    => 'vvfs_hero_slide',
+            'post_status'  => 'draft',
+            'menu_order'   => 1,
+            'meta_input'   => array(
+                'vvfs_kicker'   => __( 'Spring / Summer 2026', 'velvet-vogue-fashion-store-core' ),
+                'vvfs_subtitle' => __( 'Discover the latest collection.', 'velvet-vogue-fashion-store-core' ),
+            ),
+        ) );
+    }
+
+    $testimonial_post = get_posts( array(
+        'post_type'      => 'vvfs_testimonial',
+        'posts_per_page' => 1,
+        'fields'         => 'ids',
+    ) );
+    if ( empty( $testimonial_post ) ) {
+        wp_insert_post( array(
+            'post_title'   => __( 'Jane Doe', 'velvet-vogue-fashion-store-core' ),
+            'post_type'    => 'vvfs_testimonial',
+            'post_status'  => 'draft',
+            'meta_input'   => array(
+                'vvfs_testimonial_quote'  => __( 'Absolutely love the quality and style!', 'velvet-vogue-fashion-store-core' ),
+                'vvfs_testimonial_role'   => __( 'Fashion Enthusiast', 'velvet-vogue-fashion-store-core' ),
+                'vvfs_testimonial_rating' => 5,
+            ),
+        ) );
+    }
+
+    $footer_post = get_posts( array(
+        'post_type'      => 'vvfs_footer',
+        'posts_per_page' => 1,
+        'fields'         => 'ids',
+    ) );
+    if ( empty( $footer_post ) ) {
+        wp_insert_post( array(
+            'post_title'  => __( 'Footer Settings', 'velvet-vogue-fashion-store-core' ),
+            'post_type'   => 'vvfs_footer',
+            'post_status' => 'publish',
+            'meta_input'  => array(
+                'vvfs_footer_copyright' => '&copy; ' . gmdate( 'Y' ) . ' ' . get_bloginfo( 'name' ),
+            ),
+        ) );
+    }
+
+    flush_rewrite_rules();
+}
+register_activation_hook( __FILE__, 'vvfs_activate' );
+
+/* ======================================================
+   3. Admin Dashboard
 ====================================================== */
 
 function vvfs_add_admin_menu() {
     add_menu_page(
-        'Velvet Vogue Fashion Store Core',
-        'VVFS Core',
+        __( 'Velvet Vogue Fashion Store', 'velvet-vogue-fashion-store-core' ),
+        __( 'VVFS Core', 'velvet-vogue-fashion-store-core' ),
         'manage_options',
         'vvfs-fashion-core',
         'vvfs_fashion_core_page',
@@ -67,9 +141,9 @@ function vvfs_fashion_core_page() {
     );
     ?>
 <div class="wrap vvfs-dashboard">
-    <h1><?php esc_html_e( 'Velvet Vogue Fashion Store Core', 'velvet-vogue-fashion-store-core' ); ?></h1>
+    <h1><?php esc_html_e( 'Velvet Vogue Fashion Store', 'velvet-vogue-fashion-store-core' ); ?></h1>
     <p class="vvfs-dashboard-description">
-        <?php esc_html_e( 'Manage your fashion store content from the sections below.', 'velvet-vogue-fashion-store-core' ); ?>
+        <?php esc_html_e( 'Manage your store content from the sections below.', 'velvet-vogue-fashion-store-core' ); ?>
     </p>
     <div class="vvfs-dashboard-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:1.5rem;margin-top:1.5rem;">
         <?php foreach ( $sections as $section ) : ?>
@@ -86,7 +160,7 @@ function vvfs_fashion_core_page() {
 }
 
 /* ======================================================
-   3. Hero Slider CPT + Meta Boxes
+   4. Hero Slider CPT + Meta Boxes
 ====================================================== */
 
 function vvfs_register_hero_slide_cpt() {
@@ -159,7 +233,7 @@ function vvfs_save_hero_slide_meta( $post_id ) {
 add_action( 'save_post_vvfs_hero_slide', 'vvfs_save_hero_slide_meta' );
 
 /* ======================================================
-   4. Testimonials CPT + Meta Boxes
+   5. Testimonials CPT + Meta Boxes
 ====================================================== */
 
 function vvfs_register_testimonial_cpt() {
@@ -260,7 +334,7 @@ function vvfs_save_testimonial_meta( $post_id ) {
 add_action( 'save_post_vvfs_testimonial', 'vvfs_save_testimonial_meta' );
 
 /* ======================================================
-   5. Footer Settings (Single Instance) + Meta Boxes
+   6. Footer Settings (Single Instance) + Meta Boxes
 ====================================================== */
 
 function vvfs_register_footer_settings() {
@@ -324,9 +398,10 @@ function vvfs_footer_logo_callback( $post ) {
 }
 
 function vvfs_footer_social_callback( $post ) {
-    wp_nonce_field( 'vvfs_footer_meta', 'vvfs_footer_nonce' );
     $social = get_post_meta( $post->ID, 'vvfs_footer_social', true );
-    if ( ! is_array( $social ) ) $social = array();
+    if ( ! is_array( $social ) ) {
+        $social = array();
+    }
     ?>
 <p>
     <label for="vvfs_footer_social_instagram"><strong><?php esc_html_e( 'Instagram URL', 'velvet-vogue-fashion-store-core' ); ?></strong></label><br>
@@ -348,9 +423,10 @@ function vvfs_footer_social_callback( $post ) {
 }
 
 function vvfs_footer_links_callback( $post ) {
-    wp_nonce_field( 'vvfs_footer_meta', 'vvfs_footer_nonce' );
     $links = get_post_meta( $post->ID, 'vvfs_footer_links', true );
-    if ( ! is_array( $links ) ) $links = array();
+    if ( ! is_array( $links ) ) {
+        $links = array();
+    }
     ?>
 <div id="vvfs-footer-links-repeater">
     <?php foreach ( $links as $index => $link ) : ?>
@@ -382,7 +458,6 @@ jQuery(function($){
 }
 
 function vvfs_footer_contact_callback( $post ) {
-    wp_nonce_field( 'vvfs_footer_meta', 'vvfs_footer_nonce' );
     $address = get_post_meta( $post->ID, 'vvfs_footer_address', true );
     $phone   = get_post_meta( $post->ID, 'vvfs_footer_phone', true );
     $email   = get_post_meta( $post->ID, 'vvfs_footer_email', true );
@@ -403,7 +478,6 @@ function vvfs_footer_contact_callback( $post ) {
 }
 
 function vvfs_footer_copyright_callback( $post ) {
-    wp_nonce_field( 'vvfs_footer_meta', 'vvfs_footer_nonce' );
     $copyright = get_post_meta( $post->ID, 'vvfs_footer_copyright', true );
     ?>
 <p>
