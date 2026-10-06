@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Obydullah Fashion Store Core
  * Description: Core functionality for the Fashion theme
- * Version:     1.0.0
+ * Version:     1.0.1
  * Author:      Shaik Obydullah
  * Author URI:  https://obydullah.com
  * Text Domain: obydullah-fashion-store-core
@@ -20,6 +20,7 @@
  * 4. Hero Slider CPT + Meta Boxes
  * 5. Testimonials CPT + Meta Boxes
  * 6. Footer Settings (Single Instance) + Meta Boxes
+ * 7. Admin Assets
  * =====================================================================================
  */
 
@@ -37,7 +38,17 @@ if ( version_compare( PHP_VERSION, '8.0', '<' ) ) {
     return;
 }
 
-define( 'OFSC_CORE_VERSION', '1.0.0' );
+if ( version_compare( $GLOBALS['wp_version'] ?? '0', '6.2', '<' ) ) {
+    add_action( 'admin_notices', function () {
+        echo '<div class="notice notice-error"><p>';
+        echo esc_html__( 'Obydullah Fashion Store Core requires WordPress 6.2 or higher. Your server is running WordPress ', 'obydullah-fashion-store-core' );
+        echo esc_html( $GLOBALS['wp_version'] ?? '0' );
+        echo '.</p></div>';
+    } );
+    return;
+}
+
+define( 'OFSC_CORE_VERSION', '1.0.1' );
 define( 'OFSC_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'OFSC_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 
@@ -46,61 +57,122 @@ define( 'OFSC_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 ====================================================== */
 
 function ofsc_activate() {
-    $hero_post = get_posts( [
-        'post_type'      => 'ofsc_hero_slide',
-        'posts_per_page' => 1,
-        'fields'         => 'ids',
-    ] );
-    if ( empty( $hero_post ) ) {
-        wp_insert_post( [
-            'post_title'   => __( 'Sample Hero Slide', 'obydullah-fashion-store-core' ),
-            'post_type'    => 'ofsc_hero_slide',
-            'post_status'  => 'draft',
-            'menu_order'   => 1,
-            'meta_input'   => [
-                'ofsc_kicker'   => __( 'Spring / Summer 2026', 'obydullah-fashion-store-core' ),
-                'ofsc_subtitle' => __( 'Discover the latest collection.', 'obydullah-fashion-store-core' ),
-            ],
-        ] );
-    }
+    /*
+     * wp-admin/plugins.php runs activate_plugin() long after wp-settings.php fired
+     * `init`, so the add_action( 'init', ... ) callbacks below never execute in this
+     * request. Register the post types here first, otherwise flush_rewrite_rules()
+     * writes a rule set without the ofsc-hero-slide permalink and the hero slides
+     * 404 until somebody saves the permalinks again.
+     */
+    ofsc_register_hero_slide_cpt();
+    ofsc_register_testimonial_cpt();
+    ofsc_register_footer_settings();
 
-    $testimonial_post = get_posts( [
-        'post_type'      => 'ofsc_testimonial',
-        'posts_per_page' => 1,
-        'fields'         => 'ids',
-    ] );
-    if ( empty( $testimonial_post ) ) {
-        wp_insert_post( [
-            'post_title'   => __( 'Jane Doe', 'obydullah-fashion-store-core' ),
-            'post_type'    => 'ofsc_testimonial',
-            'post_status'  => 'draft',
-            'meta_input'   => [
-                'ofsc_testimonial_quote'  => __( 'Absolutely love the quality and style!', 'obydullah-fashion-store-core' ),
-                'ofsc_testimonial_role'   => __( 'Fashion Enthusiast', 'obydullah-fashion-store-core' ),
-                'ofsc_testimonial_rating' => 5,
+    $seeds = [
+        'ofsc_hero_slide'   => [
+            'label' => __( 'Hero Slides', 'obydullah-fashion-store-core' ),
+            'args'  => [
+                'post_title'  => __( 'Sample Hero Slide', 'obydullah-fashion-store-core' ),
+                'post_status' => 'draft',
+                'menu_order'  => 1,
+                'meta_input'  => [
+                    'ofsc_kicker'   => __( 'Spring / Summer 2026', 'obydullah-fashion-store-core' ),
+                    'ofsc_subtitle' => __( 'Discover the latest collection.', 'obydullah-fashion-store-core' ),
+                ],
             ],
-        ] );
-    }
+        ],
+        'ofsc_testimonial'  => [
+            'label' => __( 'Testimonials', 'obydullah-fashion-store-core' ),
+            'args'  => [
+                'post_title'  => __( 'Jane Doe', 'obydullah-fashion-store-core' ),
+                'post_status' => 'draft',
+                'meta_input'  => [
+                    'ofsc_testimonial_quote'  => __( 'Absolutely love the quality and style!', 'obydullah-fashion-store-core' ),
+                    'ofsc_testimonial_role'   => __( 'Fashion Enthusiast', 'obydullah-fashion-store-core' ),
+                    'ofsc_testimonial_rating' => 5,
+                ],
+            ],
+        ],
+        'ofsc_footer'       => [
+            'label' => __( 'Footer Settings', 'obydullah-fashion-store-core' ),
+            'args'  => [
+                'post_title'  => __( 'Footer Settings', 'obydullah-fashion-store-core' ),
+                'post_status' => 'publish',
+                'meta_input'  => [
+                    'ofsc_footer_copyright' => '&copy; ' . wp_date( 'Y' ) . ' ' . get_bloginfo( 'name' ),
+                ],
+            ],
+        ],
+    ];
 
-    $footer_post = get_posts( [
-        'post_type'      => 'ofsc_footer',
-        'posts_per_page' => 1,
-        'fields'         => 'ids',
-    ] );
-    if ( empty( $footer_post ) ) {
-        wp_insert_post( [
-            'post_title'  => __( 'Footer Settings', 'obydullah-fashion-store-core' ),
-            'post_type'   => 'ofsc_footer',
-            'post_status' => 'publish',
-            'meta_input'  => [
-                'ofsc_footer_copyright' => '&copy; ' . gmdate( 'Y' ) . ' ' . get_bloginfo( 'name' ),
-            ],
-        ] );
+    $failed = [];
+
+    foreach ( $seeds as $post_type => $seed ) {
+        if ( ! ofsc_seed_post( $post_type, $seed['args'] ) ) {
+            $failed[] = $seed['label'];
+        }
     }
 
     flush_rewrite_rules();
+
+    // Activation may not print, so a failed seed is reported on the next admin screen.
+    if ( $failed ) {
+        update_option( 'ofsc_activation_failed', $failed, false );
+    } else {
+        delete_option( 'ofsc_activation_failed' );
+    }
 }
 register_activation_hook( __FILE__, 'ofsc_activate' );
+
+/**
+ * Creates one sample row for a post type when the site has none yet.
+ *
+ * The probe spans every status because the seeds are drafts: a publish-only probe
+ * would insert another copy on every re-activation.
+ *
+ * @param string $post_type Post type to probe and seed.
+ * @param array  $postarr   wp_insert_post() arguments, without the post type.
+ * @return bool True when the post type has a row once this call is done.
+ */
+function ofsc_seed_post( $post_type, $postarr ) {
+    $existing = get_posts( [
+        'post_type'      => $post_type,
+        'post_status'    => 'any',
+        'posts_per_page' => 1,
+        'fields'         => 'ids',
+    ] );
+
+    if ( ! empty( $existing ) ) {
+        return true;
+    }
+
+    $postarr['post_type'] = $post_type;
+    $post_id              = wp_insert_post( $postarr, true );
+
+    return ! is_wp_error( $post_id ) && $post_id > 0;
+}
+
+/**
+ * Explains a failed activation seed on the next admin screen.
+ */
+function ofsc_activation_notice() {
+    $failed = get_option( 'ofsc_activation_failed' );
+
+    if ( empty( $failed ) || ! is_array( $failed ) ) {
+        return;
+    }
+
+    delete_option( 'ofsc_activation_failed' );
+
+    echo '<div class="notice notice-error"><p>';
+    printf(
+        /* translators: %s: comma separated list of content section names. */
+        esc_html__( 'Obydullah Fashion Store Core is active but could not create its sample content for %s. Add those rows by hand from the Fashion Store Core menu.', 'obydullah-fashion-store-core' ),
+        esc_html( implode( ', ', $failed ) )
+    );
+    echo '</p></div>';
+}
+add_action( 'admin_notices', 'ofsc_activation_notice' );
 
 /* ======================================================
    3. Admin Dashboard
@@ -143,14 +215,11 @@ function ofsc_fashion_core_page() {
     <p class="ofsc-dashboard-description">
         <?php esc_html_e( 'Manage your store content from the sections below.', 'obydullah-fashion-store-core' ); ?>
     </p>
-    <div class="ofsc-dashboard-grid"
-        style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:1.5rem;margin-top:1.5rem;">
+    <div class="ofsc-dashboard-grid">
         <?php foreach ( $sections as $section ) : ?>
-        <div class="ofsc-dashboard-card"
-            style="background:#fff;border:1px solid #ccc;border-radius:8px;padding:1.5rem;text-align:center;">
-            <div class="dashicons <?php echo esc_attr( $section['icon'] ); ?>"
-                style="font-size:2rem;width:auto;height:auto;margin-bottom:0.5rem;color:#f43f5e;"></div>
-            <h2 style="margin:0.5rem 0;font-size:1rem;"><?php echo esc_html( $section['title'] ); ?></h2>
+        <div class="ofsc-dashboard-card">
+            <div class="dashicons <?php echo esc_attr( $section['icon'] ); ?>"></div>
+            <h2><?php echo esc_html( $section['title'] ); ?></h2>
             <a href="<?php echo esc_url( $section['url'] ); ?>"
                 class="button button-primary"><?php esc_html_e( 'Manage', 'obydullah-fashion-store-core' ); ?></a>
         </div>
@@ -198,7 +267,7 @@ add_action( 'add_meta_boxes', 'ofsc_add_hero_slide_meta_box' );
 function ofsc_render_hero_slide_meta_box( $post ) {
     $subtitle = get_post_meta( $post->ID, 'ofsc_subtitle', true );
     $kicker   = get_post_meta( $post->ID, 'ofsc_kicker', true );
-    wp_nonce_field( 'ofsc_save_hero_slide_meta', 'ofsc_hero_slide_nonce' );
+    wp_nonce_field( 'ofsc_save_hero_slide_meta_' . $post->ID, 'ofsc_hero_slide_nonce' );
     ?>
 <p>
     <label
@@ -216,16 +285,20 @@ function ofsc_render_hero_slide_meta_box( $post ) {
 
 function ofsc_save_hero_slide_meta( $post_id ) {
     // Security & Execution Guards
-    if ( ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['ofsc_hero_slide_nonce'] ?? '' ) ), 'ofsc_save_hero_slide_meta' ) ) return;
+    if ( ! isset( $_POST['ofsc_hero_slide_nonce'] ) || ! is_string( $_POST['ofsc_hero_slide_nonce'] ) ) return;
+    if ( ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['ofsc_hero_slide_nonce'] ) ), 'ofsc_save_hero_slide_meta_' . $post_id ) ) {
+        wp_die( esc_html__( 'Invalid or expired nonce. Please reload the page and try again.', 'obydullah-fashion-store-core' ), '', [ 'response' => 403 ] );
+    }
     if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) return;
+    if ( wp_is_post_revision( $post_id ) ) return;
     if ( 'ofsc_hero_slide' !== get_post_type( $post_id ) ) return;
     if ( ! current_user_can( 'edit_post', $post_id ) ) return;
 
     // Sanitize & Save
-    if ( isset( $_POST['ofsc_kicker'] ) ) {
+    if ( isset( $_POST['ofsc_kicker'] ) && is_string( $_POST['ofsc_kicker'] ) ) {
         update_post_meta( $post_id, 'ofsc_kicker', sanitize_text_field( wp_unslash( $_POST['ofsc_kicker'] ) ) );
     }
-    if ( isset( $_POST['ofsc_subtitle'] ) ) {
+    if ( isset( $_POST['ofsc_subtitle'] ) && is_string( $_POST['ofsc_subtitle'] ) ) {
         update_post_meta( $post_id, 'ofsc_subtitle', sanitize_textarea_field( wp_unslash( $_POST['ofsc_subtitle'] ) ) );
     }
 }
@@ -275,7 +348,7 @@ function ofsc_add_testimonial_meta_boxes() {
 add_action( 'add_meta_boxes', 'ofsc_add_testimonial_meta_boxes' );
 
 function ofsc_testimonial_quote_callback( $post ) {
-    wp_nonce_field( 'ofsc_testimonial_meta', 'ofsc_testimonial_nonce' );
+    wp_nonce_field( 'ofsc_testimonial_meta_' . $post->ID, 'ofsc_testimonial_nonce' );
     $quote = get_post_meta( $post->ID, 'ofsc_testimonial_quote', true );
     echo '<textarea name="ofsc_testimonial_quote" rows="4" class="large-text">' . esc_textarea( $quote ) . '</textarea>';
 }
@@ -298,7 +371,7 @@ function ofsc_testimonial_details_callback( $post ) {
     <select name="ofsc_testimonial_rating" id="ofsc_testimonial_rating" class="widefat">
         <?php for ( $i = 5; $i >= 1; $i-- ) : ?>
         <option value="<?php echo esc_attr( $i ); ?>" <?php selected( $rating, $i ); ?>><?php echo esc_html( $i ); ?>
-            <?php esc_html_e( 'Star' , 'obydullah-fashion-store-core' ); ?><?php echo $i > 1 ? 's' : ''; ?></option>
+            <?php esc_html_e( 'Star' , 'obydullah-fashion-store-core' ); ?><?php echo esc_html( $i > 1 ? 's' : '' ); ?></option>
         <?php endfor; ?>
     </select>
 </p>
@@ -314,22 +387,27 @@ function ofsc_testimonial_details_callback( $post ) {
 
 function ofsc_save_testimonial_meta( $post_id ) {
     // Security & Execution Guards
-    if ( ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['ofsc_testimonial_nonce'] ?? '' ) ), 'ofsc_testimonial_meta' ) ) return;
+    if ( ! isset( $_POST['ofsc_testimonial_nonce'] ) || ! is_string( $_POST['ofsc_testimonial_nonce'] ) ) return;
+    if ( ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['ofsc_testimonial_nonce'] ) ), 'ofsc_testimonial_meta_' . $post_id ) ) {
+        wp_die( esc_html__( 'Invalid or expired nonce. Please reload the page and try again.', 'obydullah-fashion-store-core' ), '', [ 'response' => 403 ] );
+    }
     if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) return;
+    if ( wp_is_post_revision( $post_id ) ) return;
     if ( 'ofsc_testimonial' !== get_post_type( $post_id ) ) return;
     if ( ! current_user_can( 'edit_post', $post_id ) ) return;
 
     // Sanitize & Save
-    if ( isset( $_POST['ofsc_testimonial_quote'] ) ) {
+    if ( isset( $_POST['ofsc_testimonial_quote'] ) && is_string( $_POST['ofsc_testimonial_quote'] ) ) {
         update_post_meta( $post_id, 'ofsc_testimonial_quote', sanitize_textarea_field( wp_unslash( $_POST['ofsc_testimonial_quote'] ) ) );
     }
-    if ( isset( $_POST['ofsc_testimonial_role'] ) ) {
+    if ( isset( $_POST['ofsc_testimonial_role'] ) && is_string( $_POST['ofsc_testimonial_role'] ) ) {
         update_post_meta( $post_id, 'ofsc_testimonial_role', sanitize_text_field( wp_unslash( $_POST['ofsc_testimonial_role'] ) ) );
     }
-    if ( isset( $_POST['ofsc_testimonial_rating'] ) ) {
-        update_post_meta( $post_id, 'ofsc_testimonial_rating', intval( $_POST['ofsc_testimonial_rating'] ) );
+    if ( isset( $_POST['ofsc_testimonial_rating'] ) && is_numeric( $_POST['ofsc_testimonial_rating'] ) ) {
+        $rating = (int) $_POST['ofsc_testimonial_rating'];
+        update_post_meta( $post_id, 'ofsc_testimonial_rating', min( 5, max( 1, $rating ) ) );
     }
-    if ( isset( $_POST['ofsc_testimonial_avatar'] ) ) {
+    if ( isset( $_POST['ofsc_testimonial_avatar'] ) && is_string( $_POST['ofsc_testimonial_avatar'] ) ) {
         update_post_meta( $post_id, 'ofsc_testimonial_avatar', esc_url_raw( wp_unslash( $_POST['ofsc_testimonial_avatar'] ) ) );
     }
 }
@@ -377,7 +455,7 @@ function ofsc_limit_footer_settings() {
     $existing = get_posts( [
         'post_type'      => 'ofsc_footer',
         'posts_per_page' => 1,
-        'post_status'    => 'publish',
+        'post_status'    => 'any',
         'fields'         => 'ids',
     ] );
     if ( ! empty( $existing ) ) {
@@ -400,7 +478,7 @@ function ofsc_add_footer_meta_boxes() {
 add_action( 'add_meta_boxes', 'ofsc_add_footer_meta_boxes' );
 
 function ofsc_footer_logo_callback( $post ) {
-    wp_nonce_field( 'ofsc_footer_meta', 'ofsc_footer_nonce' );
+    wp_nonce_field( 'ofsc_footer_meta_' . $post->ID, 'ofsc_footer_nonce' );
     $tagline = get_post_meta( $post->ID, 'ofsc_footer_tagline', true );
     ?>
 <p>
@@ -453,13 +531,13 @@ function ofsc_footer_links_callback( $post ) {
     ?>
 <div id="ofsc-footer-links-repeater">
     <?php foreach ( $links as $index => $link ) : ?>
-    <div class="ofsc-footer-link-row" style="display:flex;gap:0.5rem;margin-bottom:0.5rem;align-items:center;">
+    <div class="ofsc-footer-link-row">
         <input type="text" name="ofsc_footer_links[<?php echo esc_attr( $index ); ?>][text]"
             value="<?php echo esc_attr( $link['text'] ?? '' ); ?>"
-            placeholder="<?php esc_attr_e( 'Link text', 'obydullah-fashion-store-core' ); ?>" style="flex:1;">
+            placeholder="<?php esc_attr_e( 'Link text', 'obydullah-fashion-store-core' ); ?>">
         <input type="url" name="ofsc_footer_links[<?php echo esc_attr( $index ); ?>][url]"
             value="<?php echo esc_url( $link['url'] ?? '' ); ?>"
-            placeholder="<?php esc_attr_e( 'URL', 'obydullah-fashion-store-core' ); ?>" style="flex:1;">
+            placeholder="<?php esc_attr_e( 'URL', 'obydullah-fashion-store-core' ); ?>">
         <button type="button"
             class="button ofsc-remove-link"><?php esc_html_e( 'Remove', 'obydullah-fashion-store-core' ); ?></button>
     </div>
@@ -467,25 +545,6 @@ function ofsc_footer_links_callback( $post ) {
 </div>
 <button type="button" id="ofsc-add-footer-link"
     class="button"><?php esc_html_e( 'Add Link', 'obydullah-fashion-store-core' ); ?></button>
-<script>
-jQuery(function($) {
-    var idx = <?php echo count( $links ); ?>;
-    $('#ofsc-add-footer-link').on('click', function() {
-        var row =
-            '<div class="ofsc-footer-link-row" style="display:flex;gap:0.5rem;margin-bottom:0.5rem;align-items:center;">' +
-            '<input type="text" name="ofsc_footer_links[' + idx +
-            '][text]" placeholder="Link text" style="flex:1;">' +
-            '<input type="url" name="ofsc_footer_links[' + idx +
-            '][url]" placeholder="URL" style="flex:1;">' +
-            '<button type="button" class="button ofsc-remove-link">Remove</button></div>';
-        $('#ofsc-footer-links-repeater').append(row);
-        idx++;
-    });
-    $(document).on('click', '.ofsc-remove-link', function() {
-        $(this).closest('.ofsc-footer-link-row').remove();
-    });
-});
-</script>
 <?php
 }
 
@@ -529,18 +588,31 @@ function ofsc_footer_copyright_callback( $post ) {
 
 function ofsc_save_footer_meta( $post_id ) {
     // Security & Execution Guards
-    if ( ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['ofsc_footer_nonce'] ?? '' ) ), 'ofsc_footer_meta' ) ) return;
+    if ( ! isset( $_POST['ofsc_footer_nonce'] ) || ! is_string( $_POST['ofsc_footer_nonce'] ) ) return;
+    if ( ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['ofsc_footer_nonce'] ) ), 'ofsc_footer_meta_' . $post_id ) ) {
+        wp_die( esc_html__( 'Invalid or expired nonce. Please reload the page and try again.', 'obydullah-fashion-store-core' ), '', [ 'response' => 403 ] );
+    }
     if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) return;
+    if ( wp_is_post_revision( $post_id ) ) return;
     if ( 'ofsc_footer' !== get_post_type( $post_id ) ) return;
     if ( ! current_user_can( 'edit_post', $post_id ) ) return;
 
     // Sanitize & Save
-    if ( isset( $_POST['ofsc_footer_tagline'] ) ) {
+    if ( isset( $_POST['ofsc_footer_tagline'] ) && is_string( $_POST['ofsc_footer_tagline'] ) ) {
         update_post_meta( $post_id, 'ofsc_footer_tagline', sanitize_textarea_field( wp_unslash( $_POST['ofsc_footer_tagline'] ) ) );
     }
 
     if ( isset( $_POST['ofsc_footer_social'] ) && is_array( $_POST['ofsc_footer_social'] ) ) {
-        $social = array_map( 'esc_url_raw', wp_unslash( $_POST['ofsc_footer_social'] ) );
+        // Unslashed once here; every leaf is sanitized individually in the loop below.
+        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+        $submitted = wp_unslash( $_POST['ofsc_footer_social'] );
+        $social    = [];
+        foreach ( $submitted as $network => $url ) {
+            if ( ! is_string( $url ) ) {
+                continue;
+            }
+            $social[ sanitize_key( $network ) ] = esc_url_raw( $url );
+        }
         update_post_meta( $post_id, 'ofsc_footer_social', $social );
     }
 
@@ -553,8 +625,8 @@ function ofsc_save_footer_meta( $post_id ) {
             if ( ! is_array( $link ) ) {
                 continue;
             }
-            $text = sanitize_text_field( $link['text'] ?? '' );
-            $url  = esc_url_raw( $link['url'] ?? '' );
+            $text = isset( $link['text'] ) && is_string( $link['text'] ) ? sanitize_text_field( $link['text'] ) : '';
+            $url  = isset( $link['url'] ) && is_string( $link['url'] ) ? esc_url_raw( $link['url'] ) : '';
             if ( $text && $url ) {
                 $links[] = [ 'text' => $text, 'url' => $url ];
             }
@@ -562,17 +634,72 @@ function ofsc_save_footer_meta( $post_id ) {
         update_post_meta( $post_id, 'ofsc_footer_links', $links );
     }
 
-    if ( isset( $_POST['ofsc_footer_address'] ) ) {
+    if ( isset( $_POST['ofsc_footer_address'] ) && is_string( $_POST['ofsc_footer_address'] ) ) {
         update_post_meta( $post_id, 'ofsc_footer_address', sanitize_textarea_field( wp_unslash( $_POST['ofsc_footer_address'] ) ) );
     }
-    if ( isset( $_POST['ofsc_footer_phone'] ) ) {
+    if ( isset( $_POST['ofsc_footer_phone'] ) && is_string( $_POST['ofsc_footer_phone'] ) ) {
         update_post_meta( $post_id, 'ofsc_footer_phone', sanitize_text_field( wp_unslash( $_POST['ofsc_footer_phone'] ) ) );
     }
-    if ( isset( $_POST['ofsc_footer_email'] ) ) {
+    if ( isset( $_POST['ofsc_footer_email'] ) && is_string( $_POST['ofsc_footer_email'] ) ) {
         update_post_meta( $post_id, 'ofsc_footer_email', sanitize_email( wp_unslash( $_POST['ofsc_footer_email'] ) ) );
     }
-    if ( isset( $_POST['ofsc_footer_copyright'] ) ) {
+    if ( isset( $_POST['ofsc_footer_copyright'] ) && is_string( $_POST['ofsc_footer_copyright'] ) ) {
         update_post_meta( $post_id, 'ofsc_footer_copyright', sanitize_text_field( wp_unslash( $_POST['ofsc_footer_copyright'] ) ) );
     }
 }
 add_action( 'save_post_ofsc_footer', 'ofsc_save_footer_meta' );
+
+/* ======================================================
+   7. Admin Assets
+====================================================== */
+
+function ofsc_enqueue_admin_assets( $hook_suffix ) {
+    $screen = get_current_screen();
+
+    if ( 'toplevel_page_ofsc-fashion-core' === $hook_suffix ) {
+        wp_enqueue_style(
+            'ofsc-admin',
+            OFSC_PLUGIN_URL . 'assets/css/ofsc-admin.css',
+            [],
+            OFSC_CORE_VERSION
+        );
+
+        return;
+    }
+
+    if ( ! $screen || 'ofsc_footer' !== $screen->post_type ) {
+        return;
+    }
+
+    wp_enqueue_style(
+        'ofsc-footer',
+        OFSC_PLUGIN_URL . 'assets/css/ofsc-footer.css',
+        [],
+        OFSC_CORE_VERSION
+    );
+
+    wp_enqueue_script(
+        'ofsc-footer',
+        OFSC_PLUGIN_URL . 'assets/js/ofsc-footer.js',
+        [],
+        OFSC_CORE_VERSION,
+        true
+    );
+
+    // Strings the script needs to build new repeater rows.
+    $inline = wp_json_encode(
+        [
+            'i18n' => [
+                'text'   => __( 'Link text', 'obydullah-fashion-store-core' ),
+                'url'    => __( 'URL', 'obydullah-fashion-store-core' ),
+                'remove' => __( 'Remove', 'obydullah-fashion-store-core' ),
+            ],
+        ],
+        JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT
+    );
+
+    if ( is_string( $inline ) ) {
+        wp_add_inline_script( 'ofsc-footer', 'window.ofscFooterLinks = ' . $inline . ';', 'before' );
+    }
+}
+add_action( 'admin_enqueue_scripts', 'ofsc_enqueue_admin_assets' );

@@ -1,0 +1,17 @@
+/**
+ * Layout for the Footer Settings quick-links repeater rows.
+ *
+ * Scoped to the meta box markup so existing (server rendered) and newly added
+ * rows share the same presentation.
+ */
+
+.ofsc-footer-link-row {
+	display: flex;
+	gap: 0.5rem;
+	margin-bottom: 0.5rem;
+	align-items: center;
+}
+
+.ofsc-footer-link-row input {
+	flex: 1;
+}

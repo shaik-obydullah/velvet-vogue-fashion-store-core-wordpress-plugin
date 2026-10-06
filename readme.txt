@@ -5,7 +5,7 @@ Text Domain: obydullah-fashion-store-core
 Requires at least: 6.2
 Tested up to: 7.1
 Requires PHP: 8.0
-Stable tag: 1.0.0
+Stable tag: 1.0.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -22,7 +22,7 @@ The plugin is theme-agnostic. It handles content storage and administration only
 * **Hero Slider Management** &mdash; Create and reorder hero slides with custom kicker text (e.g. "Autumn / Winter 2026") and subtitles. Supports featured images and menu-order sorting.
 * **Testimonials** &mdash; Manage customer testimonials with quote text, star ratings (1&ndash;5), role/title, and avatar URL.
 * **Footer Settings (Singleton)** &mdash; A single-instance screen for the site-wide footer: logo tagline, social media URLs (Instagram, Pinterest, YouTube, TikTok), quick links with an add/remove repeater, contact information (address, phone, email), and copyright text.
-* **Admin Dashboard** &mdash; A centralized page under the **OFSC Core** menu linking to each content section.
+* **Admin Dashboard** &mdash; A centralized page under the **Fashion Store Core** menu linking to each content section.
 * **WordPress REST API** &mdash; All three CPTs are REST-enabled for headless front ends or block-editor integration.
 
 = Theme integration =
@@ -80,10 +80,10 @@ Every save handler verifies a post-specific nonce, rejects autosaves and revisio
 == Installation ==
 
 1. Upload the `obydullah-fashion-store-core` folder to `/wp-content/plugins/`, or install the plugin through the **Plugins** screen in WordPress.
-2. Activate the plugin through the **Plugins** screen. On activation, sample draft content is created so each section is ready to edit.
-3. Navigate to **OFSC Core** in the admin sidebar.
+2. Activate the plugin through the **Plugins** screen. On activation, sample draft content is created so each section is ready to edit, and the rewrite rules for the hero slide permalink are written immediately.
+3. Navigate to **Fashion Store Core** in the admin sidebar.
 
-If you already have content, visit **Settings &rarr; Permalinks** and click **Save Changes** once to refresh the rewrite rules for the hero slide permalink.
+Requires PHP 8.0+ and WordPress 6.2+. Older environments are reported with an admin notice instead of a fatal error.
 
 == Frequently Asked Questions ==
 
@@ -109,12 +109,20 @@ Each hero slide supports page attributes, so set its **Order** field in the side
 
 == Screenshots ==
 
-1. The OFSC Core admin dashboard with navigation cards for each section.
+1. The Fashion Store Core admin dashboard with navigation cards for each section.
 2. The Hero Slides list screen and the hero slide settings meta box.
 3. The Testimonials editor with the quote meta box and the details sidebar box.
 4. The Footer Settings editor with logo/tagline, social media, quick links repeater, contact, and copyright meta boxes.
 
 == Changelog ==
+
+= 1.0.1 =
+* Fixed: activation now registers the post types before flushing rewrite rules, so the hero slide permalink works without a manual **Permalinks &rarr; Save Changes**.
+* Fixed: activation no longer adds another sample row on every re-activation.
+* Fixed: a failed sample insert is reported in the admin instead of passing silently.
+* Added a runtime check for the minimum WordPress version, matching the header requirement.
+* Hardened the save handlers against array input, and they now reject a forged nonce with a 403 instead of dropping the save silently.
+* Ratings are stored as an integer within the 1&ndash;5 range.
 
 = 1.0.0 =
 * Initial release.
@@ -125,6 +133,9 @@ Each hero slide supports page attributes, so set its **Order** field in the side
 * Nonce, capability, and sanitization guards on all save handlers.
 
 == Upgrade Notice ==
+
+= 1.0.1 =
+Writes the hero slide rewrite rules during activation, so you no longer have to save the permalinks by hand. Save handlers now reject a forged or expired nonce with a 403 instead of silently ignoring it, so reload an editor tab that was open before the update once.
 
 = 1.0.0 =
 Initial release.

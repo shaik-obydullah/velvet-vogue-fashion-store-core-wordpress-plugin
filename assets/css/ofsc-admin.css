@@ -1,0 +1,33 @@
+/**
+ * Styles for the OFSC Core admin dashboard.
+ *
+ * Scoped to the .ofsc-dashboard wrapper so nothing leaks into other admin pages.
+ */
+
+.ofsc-dashboard .ofsc-dashboard-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+	gap: 1.5rem;
+	margin-top: 1.5rem;
+}
+
+.ofsc-dashboard .ofsc-dashboard-card {
+	background: #fff;
+	border: 1px solid #ccc;
+	border-radius: 8px;
+	padding: 1.5rem;
+	text-align: center;
+}
+
+.ofsc-dashboard .ofsc-dashboard-card .dashicons {
+	font-size: 2rem;
+	width: auto;
+	height: auto;
+	margin-bottom: 0.5rem;
+	color: #f43f5e;
+}
+
+.ofsc-dashboard .ofsc-dashboard-card h2 {
+	margin: 0.5rem 0;
+	font-size: 1rem;
+}
